@@ -1,0 +1,17 @@
+services:
+  teams-guest-bot:
+    build: .
+    ports:
+      - "3000:3000"   # the bot's HTTP API
+      - "5900:5900"   # VNC - connect with any VNC viewer to watch the bot join live
+    volumes:
+      - ./Recordings:/app/Recordings
+    environment:
+      - ENABLE_VNC=true
+      - VNC_PASSWORD=debug
+      - DEFAULT_DISPLAY_NAME=Meeting Recorder
+    # Recommended by Playwright's own Docker docs: avoids zombie processes and
+    # Chromium running out of shared memory and crashing mid-meeting.
+    init: true
+    ipc: host
+    shm_size: "1gb"

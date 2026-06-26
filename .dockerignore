@@ -1,0 +1,5 @@
+node_modules
+build
+Recordings
+.git
+*.log

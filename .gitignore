@@ -1,0 +1,10 @@
+node_modules/
+build/
+Recordings/
+*.log
+.env
+
+# Python transcription venv + caches
+transcribe/.venv/
+__pycache__/
+*.pyc
