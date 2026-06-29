@@ -98,14 +98,31 @@ export class CaptionTracker {
   /** Best-effort roster scrape. Names come from captions anyway; this is just for reference. */
   public async getParticipants(page: Page): Promise<string[]> {
     try {
-      return await page.evaluate(() => {
+      // Open the roster panel first — the li elements don't exist in DOM until it's open
+      await page.evaluate(() => {
+        const btn = document.querySelector('[data-tid="roster-button"]') as HTMLElement | null;
+        btn?.click();
+      });
+      await sleep(800); // let it render
+
+      const names = await page.evaluate(() => {
         const set = new Set<string>();
-        document.querySelectorAll('li[data-cid="roster-participant"] span[title]').forEach((node) => {
-          const title = (node as HTMLElement).getAttribute('title');
-          if (title) set.add(title.replace('(me)', '').trim());
+        document.querySelectorAll('li[data-cid="roster-participant"]').forEach((node) => {
+          // Try both span[title] and the accessible label
+          const title =
+            node.querySelector('span[title]')?.getAttribute('title') ?? node.getAttribute('aria-label');
+          if (title) set.add(title.replace(/\(me\)/i, '').trim());
         });
         return Array.from(set);
       });
+
+      // Close the panel again so it doesn't interfere with the leave flow
+      await page.evaluate(() => {
+        const btn = document.querySelector('[data-tid="roster-button"]') as HTMLElement | null;
+        btn?.click();
+      });
+
+      return names;
     } catch {
       return [];
     }

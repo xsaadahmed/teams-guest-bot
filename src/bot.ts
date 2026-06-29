@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { launchTeamsBrowser } from './browserLaunch';
 import { toDirectJoinUrl } from './teamsUrl';
-import { joinTeamsMeeting, leaveTeamsMeeting, hasMeetingEnded } from './teamsJoin';
+import { joinTeamsMeeting, leaveTeamsMeeting, hasMeetingEnded, getParticipantCount } from './teamsJoin';
 import { AudioRecorder } from './audioRecorder';
 import { CaptionTracker, CaptionEntry } from './captionTracker';
 
@@ -206,13 +206,37 @@ export class TeamsGuestBot {
 
   /** Auto-stops the recording if the meeting ends without anyone calling /leave. */
   private startEndOfMeetingWatcher(): void {
+    let aloneStreak = 0; // consecutive 10s ticks where bot appears to be alone
+
     this.pollHandle = setInterval(async () => {
       if (!this.page || this.state !== 'in_meeting') return;
+
+      // Existing check: did the organiser end the meeting / bot was navigated away?
       const ended = await hasMeetingEnded(this.page);
       if (ended) {
-        console.log('[bot] Detected the meeting has ended - auto-stopping recording');
+        console.log('[bot] Meeting has ended - auto-stopping recording');
         this.stopEndOfMeetingWatcher();
         await this.leave().catch((err) => console.error('[bot] error during auto-leave:', err));
+        return;
+      }
+
+      // New check: is the bot the only participant left?
+      const count = await getParticipantCount(this.page);
+      if (count !== null) {
+        console.log(`[bot] Participant count: ${count}`);
+      }
+      if (count !== null && count <= 1) {
+        aloneStreak++;
+        console.log(`[bot] Bot appears to be alone in meeting (${aloneStreak * 10}s elapsed)`);
+        // Wait 30 seconds before leaving — gives time for a participant who briefly
+        // dropped connection to rejoin before the bot abandons the meeting.
+        if (aloneStreak >= 3) {
+          console.log('[bot] Bot has been alone for 30s - leaving meeting');
+          this.stopEndOfMeetingWatcher();
+          await this.leave().catch((err) => console.error('[bot] error during alone-leave:', err));
+        }
+      } else {
+        aloneStreak = 0; // someone rejoined, reset the counter
       }
     }, 10_000);
   }

@@ -20,6 +20,141 @@ const IN_MEETING_SELECTORS = [
 ];
 const IN_MEETING_THRESHOLD = 2;
 
+const ROSTER_BUTTON_SELECTORS = [
+  '[data-tid="roster-button"]',
+  '[data-inp="roster-button"]',
+  '#roster-button',
+  'button[aria-label*="People" i]',
+  'button[aria-label*="participant" i]',
+];
+
+const ROSTER_ITEM_SELECTORS = [
+  'li[data-cid="roster-participant"]',
+  '[data-tid="roster-participant"]',
+  '[data-tid="participant-item"]',
+  '[data-tid="call-roster-list-item"]',
+  '[data-tid="member-list-item"]',
+  '.participant-title',
+  '#roster-content-list [role="listitem"]',
+  '#people-pane-list [role="listitem"]',
+  '[data-tid="people-pane"] [role="listitem"]',
+  '[data-tid="calling-roster"] [role="listitem"]',
+];
+
+type DomCountResult = { count: number | null; via: string; hints?: string[] };
+
+async function clickRosterButton(page: Page): Promise<boolean> {
+  for (const selector of ROSTER_BUTTON_SELECTORS) {
+    try {
+      const button = page.locator(selector).first();
+      if ((await button.count()) > 0) {
+        await button.click({ timeout: 2000 });
+        return true;
+      }
+    } catch {
+      // try next selector
+    }
+  }
+  // Teams sometimes renders meeting controls inside an iframe.
+  for (const frame of page.frames()) {
+    for (const selector of ROSTER_BUTTON_SELECTORS) {
+      try {
+        const button = frame.locator(selector).first();
+        if ((await button.count()) > 0) {
+          await button.click({ timeout: 2000 });
+          return true;
+        }
+      } catch {
+        // try next
+      }
+    }
+  }
+  return false;
+}
+
+/** Count participants in one frame. Runs inside the browser. */
+function countParticipantsEvaluate(itemSelectors: string[]): DomCountResult {
+  // IMPORTANT: To avoid false-positive auto-leaves, only trust EXPLICIT numeric
+  // counts from Teams text (heading/button/body), not inferred counts from avatar
+  // elements or generic list item totals. In some enterprise layouts those can
+  // undercount and cause premature leaving.
+  const headingPattern = /participant|people|in this meeting|present|attendee|in the meeting/i;
+  const headings = Array.from(
+    document.querySelectorAll(
+      'h2, h3, h4, [role="heading"], [data-tid="people-pane"] span, [data-tid="roster-header"]',
+    ),
+  );
+  for (const el of headings) {
+    const text = (el.textContent || '').trim();
+    if (!headingPattern.test(text)) continue;
+    const match = text.match(/\((\d+)\)/) || text.match(/(\d+)/);
+    if (match) return { count: parseInt(match[1], 10), via: `heading:${text.slice(0, 50)}` };
+  }
+
+  // Fallback: parse the common "In this meeting (N)" text anywhere in the page.
+  const bodyText = document.body?.innerText || '';
+  const bodyMatch = bodyText.match(/in this meeting\s*\((\d+)\)/i);
+  if (bodyMatch) {
+    return { count: parseInt(bodyMatch[1], 10), via: 'body:in this meeting' };
+  }
+
+  const hints: string[] = [];
+  // Keep listing potential roster-related nodes for debugging selector drift.
+  document
+    .querySelectorAll('[data-tid*="roster" i], [data-tid*="participant" i], [data-tid*="people" i]')
+    .forEach((el) => {
+      hints.push(
+        `${el.tagName}[data-tid=${el.getAttribute('data-tid')}] listitems=${el.querySelectorAll('[role="listitem"], li').length}`,
+      );
+    });
+
+  return { count: null, via: 'none', hints: hints.slice(0, 12) };
+}
+
+async function countParticipantsFromDom(page: Page): Promise<DomCountResult & { frame?: string }> {
+  for (const frame of page.frames()) {
+    try {
+      const result = await frame.evaluate(countParticipantsEvaluate, ROSTER_ITEM_SELECTORS);
+      if (result.count !== null) {
+        return { ...result, frame: frame.url() };
+      }
+    } catch {
+      // frame may be detached
+    }
+  }
+  // Return last frame's hints for debugging (main frame first).
+  try {
+    const debug = await page.mainFrame().evaluate(countParticipantsEvaluate, ROSTER_ITEM_SELECTORS);
+    return debug;
+  } catch {
+    return { count: null, via: 'none' };
+  }
+}
+
+function parseCountFromRosterLabel(label: string): number | null {
+  const match = label.match(/\((\d+)\)|(\d+)\s*participant/i);
+  if (match) return parseInt(match[1] ?? match[2], 10);
+  return null;
+}
+
+async function readRosterButtonLabel(page: Page): Promise<string | null> {
+  for (const frame of page.frames()) {
+    try {
+      const label = await frame.evaluate((selectors) => {
+        for (const selector of selectors) {
+          const btn = document.querySelector(selector) as HTMLElement | null;
+          if (btn) return (btn.getAttribute('aria-label') || btn.textContent || '').trim();
+        }
+        return null;
+      }, ROSTER_BUTTON_SELECTORS);
+      if (label) return label;
+    } catch {
+      // try next frame
+    }
+  }
+  return null;
+}
+
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -221,5 +356,56 @@ export async function hasMeetingEnded(page: Page): Promise<boolean> {
   } catch {
     // If we can't even evaluate on the page anymore, treat that as "ended".
     return true;
+  }
+}
+
+/**
+ * Returns the number of participants currently in the meeting, or null if it
+ * can't be determined. Used to detect "bot is alone" so it can auto-leave.
+ *
+ * Tries three sources in order:
+ *   1. The aria-label on the roster button (fast, no UI interaction).
+ *   2. Counting roster li elements if the panel is already open.
+ *   3. Opening the roster panel, counting li elements, then closing it again.
+ */
+export async function getParticipantCount(page: Page): Promise<number | null> {
+  try {
+    const label = await readRosterButtonLabel(page);
+    if (label) {
+      const fromLabel = parseCountFromRosterLabel(label);
+      if (fromLabel !== null) return fromLabel;
+    }
+
+    let result = await countParticipantsFromDom(page);
+    if (result.count !== null) return result.count;
+
+    const opened = await clickRosterButton(page);
+    if (opened) {
+      await sleep(2000);
+      result = await countParticipantsFromDom(page);
+      await clickRosterButton(page).catch(() => undefined);
+
+      if (result.count !== null) {
+        console.log(
+          `[teamsJoin] Participant count from roster panel: ${result.count} (via ${result.via}${result.frame ? `, frame=${result.frame}` : ''})`,
+        );
+        return result.count;
+      }
+      console.log(`[teamsJoin] Roster panel opened but no participants matched (via ${result.via})`);
+      if (result.hints?.length) {
+        console.log(`[teamsJoin] Roster DOM hints: ${result.hints.join('; ')}`);
+      }
+    } else {
+      console.log('[teamsJoin] Could not click roster button to open people pane');
+    }
+
+    if (label) {
+      console.log(`[teamsJoin] Could not parse participant count; roster label was: "${label}"`);
+    }
+
+    return null;
+  } catch (err) {
+    console.warn('[teamsJoin] getParticipantCount error:', (err as Error).message);
+    return null;
   }
 }
