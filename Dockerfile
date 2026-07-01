@@ -27,7 +27,8 @@ ENV RECORDINGS_DIR=/app/Recordings
 ENV PORT=3000
 
 COPY start.sh /start.sh
-RUN chmod +x /start.sh
+# Strip Windows CRLF so the shebang works on Linux (common after git clone on Windows).
+RUN sed -i 's/\r$//' /start.sh && chmod +x /start.sh
 
 EXPOSE 3000
 ENTRYPOINT ["/start.sh"]
