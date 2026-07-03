@@ -1,3 +1,0 @@
-# Verbatim transcription for the named-transcript merge step.
-# faster-whisper pulls in ctranslate2 + av (ffmpeg bindings) automatically.
-faster-whisper>=1.0.0

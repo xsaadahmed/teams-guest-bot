@@ -6,6 +6,31 @@ audio plays through that browser to a `.wav` file. This is the same general appr
 most commercial "notetaker" bots (Otter, Fireflies, Read.ai, etc.) and several open-source
 projects, rather than Microsoft's official Graph Calling SDK.
 
+## Repository branches
+
+| Branch | Contents | Approx. clone size |
+|---|---|---|
+| **`main`** (default) | Core app — live captions + audio recording | ~110 KB |
+| **`with-whisper`** | Same + `transcribe/` + offline faster-whisper wheels | ~90 MB |
+
+**Clone core app only (live captions, no Whisper):**
+
+```bash
+git clone https://github.com/xsaadahmed/teams-guest-bot
+```
+
+Or explicitly:
+
+```bash
+git clone -b main https://github.com/xsaadahmed/teams-guest-bot
+```
+
+**Clone with offline faster-whisper support:**
+
+```bash
+git clone -b with-whisper https://github.com/xsaadahmed/teams-guest-bot
+```
+
 ## How this differs from the Graph Calling SDK approach
 
 | | Graph Calling SDK (Approach A) | This (guest browser join) |
@@ -170,6 +195,11 @@ That `.transcript.txt` already gives you a named transcript with **zero extra st
 Teams' caption quality (good, occasionally paraphrased).
 
 ### Optional: verbatim Whisper text + real names
+
+> **Note:** The `transcribe/` folder is only on the **`with-whisper`** branch (~90 MB clone).
+> Clone with `git clone -b with-whisper https://github.com/xsaadahmed/teams-guest-bot` if you
+> want offline faster-whisper. The **`main`** branch gives you live-caption transcripts with no
+> extra setup.
 
 If you want higher-fidelity, verbatim text while keeping the real names, run the merge script. It
 transcribes the `.wav` with faster-whisper and labels each segment with the speaker from the
