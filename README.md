@@ -10,10 +10,10 @@ projects, rather than Microsoft's official Graph Calling SDK.
 
 | Branch | Contents | Approx. clone size |
 |---|---|---|
-| **`main`** (default) | Core app — live captions + audio recording | ~110 KB |
-| **`with-whisper`** | Same + `transcribe/` + offline faster-whisper wheels | ~90 MB |
+| **`main`** (default) | Core app + `transcribe/` scripts (install deps via pip) | ~110 KB |
+| **`with-whisper`** | Same + pre-vendored offline wheels in `transcribe/vendor/` | ~90 MB |
 
-**Clone core app only (live captions, no Whisper):**
+**Clone core app (live captions; optional Whisper via pip):**
 
 ```bash
 git clone https://github.com/xsaadahmed/teams-guest-bot
@@ -25,7 +25,7 @@ Or explicitly:
 git clone -b main https://github.com/xsaadahmed/teams-guest-bot
 ```
 
-**Clone with offline faster-whisper support:**
+**Clone with pre-vendored offline faster-whisper wheels** (for networks that block PyPI):
 
 ```bash
 git clone -b with-whisper https://github.com/xsaadahmed/teams-guest-bot
@@ -196,10 +196,9 @@ Teams' caption quality (good, occasionally paraphrased).
 
 ### Optional: verbatim Whisper text + real names
 
-> **Note:** The `transcribe/` folder is only on the **`with-whisper`** branch (~90 MB clone).
-> Clone with `git clone -b with-whisper https://github.com/xsaadahmed/teams-guest-bot` if you
-> want offline faster-whisper. The **`main`** branch gives you live-caption transcripts with no
-> extra setup.
+> **Note:** `main` includes the `transcribe/` scripts — install deps with pip (see below). If PyPI
+> is blocked on your network, use the **`with-whisper`** branch instead; it ships pre-downloaded
+> wheels in `transcribe/vendor/` for offline `pip install --no-index`.
 
 If you want higher-fidelity, verbatim text while keeping the real names, run the merge script. It
 transcribes the `.wav` with faster-whisper and labels each segment with the speaker from the

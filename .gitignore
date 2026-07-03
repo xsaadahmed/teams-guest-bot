@@ -6,5 +6,6 @@ Recordings/
 
 # Python transcription venv + caches
 transcribe/.venv/
+transcribe/vendor/
 __pycache__/
 *.pyc
